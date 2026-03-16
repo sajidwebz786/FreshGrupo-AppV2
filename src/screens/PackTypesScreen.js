@@ -212,8 +212,11 @@ const PackTypesScreen = () => {
     return {
       name: pack.name, // Use actual pack name from database (e.g., 'Small Fruit Pack')
       description: description,
-      color: '#2E7D32',
-      gradientColors: ['#66BB6A', '#43A047', '#2E7D32'],
+      // Use dynamic color from PackType if available, otherwise fallback to default green
+      color: pack.PackType?.color || '#2E7D32',
+      gradientColors: pack.PackType?.color 
+        ? [pack.PackType.color, pack.PackType.color, pack.PackType.color]
+        : ['#66BB6A', '#43A047', '#2E7D32'],
       duration: pack.PackType?.duration || 'small',
       available: true,
       price: packPrice || 'N/A',

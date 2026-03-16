@@ -270,6 +270,13 @@ const PackContentsScreen = () => {
               : ' - Need ' + (grandTotal - walletBalance).toFixed(0) + ' more'}
           </Text>
         </View>
+        {/* Content (Long Description) from pack.content field */}
+        {packDetails?.content && (
+          <View style={styles.contentSection}>
+            <Text style={styles.contentTitle}>About This Pack</Text>
+            <Text style={styles.contentText}>{packDetails.content}</Text>
+          </View>
+        )}
       </View>
 
       <ScrollView
@@ -390,6 +397,25 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
     marginTop: 4,
+  },
+  contentSection: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  contentTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  contentText: {
+    fontSize: 13,
+    color: '#555',
+    lineHeight: 20,
   },
 
   scrollContainer: {marginHorizontal: 10},

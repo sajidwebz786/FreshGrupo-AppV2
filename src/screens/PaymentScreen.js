@@ -100,24 +100,7 @@ const PaymentScreen = () => {
         return;
       }
 
-      // Deduct from wallet
-      const res = await fetch(
-        'https://freshgrupo-server.onrender.com/api/wallet/deduct',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            userId: currentUser.id,
-            amount: totalAmount,
-            description: 'Payment for order',
-          }),
-        }
-      );
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Payment failed');
-
-      // Create order
+      // Create order - server will handle wallet deduction automatically
       const orderPayload = {
         userId: currentUser.id,
         quantity: cartItems.reduce((s, i) => s + i.quantity, 0),
@@ -130,7 +113,6 @@ const PaymentScreen = () => {
         customPackItems: cartItems[0]?.customPackItems,
         timeSlot,
         deliveryDate: selectedDate.toISOString(),
-        walletTransactionId: data.transaction?.id,
       };
 
       const orderRes = await fetch(
@@ -142,7 +124,26 @@ const PaymentScreen = () => {
         }
       );
 
-      if (!orderRes.ok) throw new Error('Order failed');
+      const orderData = await orderRes.json();
+      
+      if (!orderRes.ok) {
+        // If order failed due to insufficient balance, show appropriate error
+        if (orderData.error === 'Insufficient wallet balance') {
+          Alert.alert(
+            'Insufficient Wallet Balance',
+            `Your wallet balance is ₹${walletBalance.toFixed(2)}. You need ₹${totalAmount.toFixed(2)}. Would you like to add more credits?`,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Add Credits', onPress: () => navigation.navigate('BuyCredits') },
+            ]
+          );
+          return;
+        }
+        throw new Error(orderData.error || 'Order failed');
+      }
+
+      // Get updated wallet balance from order response
+      const updatedWalletBalance = orderData.walletBalance;
 
       // Clear all cart items at once using the bulk clear endpoint
       try {
@@ -163,7 +164,11 @@ const PaymentScreen = () => {
         console.error('Error clearing cart:', err);
       }
 
-      Alert.alert('Success', 'Order placed successfully! Credits have been deducted from your wallet.');
+      const successMessage = updatedWalletBalance !== undefined && updatedWalletBalance !== null
+        ? `Order placed successfully! Remaining wallet balance: ₹${updatedWalletBalance.toFixed(2)}`
+        : 'Order placed successfully! Credits have been deducted from your wallet.';
+
+      Alert.alert('Success', successMessage);
       navigation.dispatch(
         CommonActions.reset({
           index: 0,
