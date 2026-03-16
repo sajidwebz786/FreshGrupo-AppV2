@@ -1,0 +1,51 @@
+buildscript {
+    ext {
+        buildToolsVersion = "35.0.0"
+        minSdkVersion = 24
+        compileSdkVersion = 35
+        targetSdkVersion = 35
+        ndkVersion = "29.0.14206865"
+        kotlinVersion = "2.0.21"
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle:8.5.2")
+        classpath("com.facebook.react:react-native-gradle-plugin")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+// Workaround for react-native-reanimated release build issue
+subprojects { subproject ->
+    afterEvaluate {
+        if (subproject.name == "react-native-reanimated") {
+            subproject.tasks.matching { it.name.startsWith("package") }.all { task ->
+                // Exclude .so files from the lint AAR package task
+                task.doFirst {
+                    if (task.hasProperty("inputFileTree")) {
+                        def tree = task.inputFileTree
+                        if (tree != null) {
+                            tree.matching { include "**/*.so" }.files.each { f ->
+                                println "Excluding native library from AAR: $f"
+                                // Remove from task inputs
+                                task.inputs.files.remove(f)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+apply plugin: "com.facebook.react.rootproject"
