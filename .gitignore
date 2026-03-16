@@ -125,6 +125,11 @@ dist
 # TernJS port file
 .tern-port
 
+# Android build directories
+android/app/build/
+android/.gradle/
+android/app/.cxx/
+
 # Stores VSCode versions used for testing VSCode extensions
 .vscode-test
 
