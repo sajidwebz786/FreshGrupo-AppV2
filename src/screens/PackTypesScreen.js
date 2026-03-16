@@ -179,7 +179,11 @@ const PackTypesScreen = () => {
     let packPrice = '';
     let finalPrice = 0;
     
-    if (pack.Products && pack.Products.length > 0) {
+    // First check if sellingPrice is available (this is the price shown to customers)
+    if (pack.sellingPrice && pack.sellingPrice > 0) {
+      packPrice = `₹${Math.round(pack.sellingPrice).toLocaleString('en-IN')}`;
+      finalPrice = pack.sellingPrice;
+    } else if (pack.Products && pack.Products.length > 0) {
       const totalPrice = pack.Products.reduce((sum, item) => {
         const price = item.PackProduct?.unitPrice || item.price || 0;
         const qty = item.PackProduct?.quantity || 1;
