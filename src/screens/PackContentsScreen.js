@@ -1,6 +1,7 @@
 import React, {useState, useEffect} from 'react';
 import {
   View,
+  Image,
   Text,
   StyleSheet,
   ScrollView,
@@ -8,7 +9,6 @@ import {
   ActivityIndicator,
   StatusBar,
   Dimensions,
-  Image,
 } from 'react-native';
 import {useRoute, useNavigation} from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -40,8 +40,17 @@ const PackContentsScreen = () => {
       const currentUser = userData ? JSON.parse(userData) : null;
 
       if (currentUser?.id) {
+        const token = await AsyncStorage.getItem('userToken');
+
         const response = await fetch(
-          `https://freshgrupo-server.onrender.com/api/wallet/${currentUser.id}`,
+          'https://freshgrupo-server.onrender.com/api/wallet',
+          {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+          },
         );
         const data = await response.json();
         if (data.wallet) {
@@ -94,14 +103,57 @@ const PackContentsScreen = () => {
     }
   };
 
-  // Get product image from database or use fallback
-  const getProductImage = (product) => {
-    // First try to use image from database
-    if (product.image) {
-      return { uri: product.image };
+  // Format quantity based on unit type
+  const formatQuantity = (qty, unitAbbreviation) => {
+    // If qty is a string (like 'kg', 'dozen'), it's already the unit type - return as is
+    if (typeof qty === 'string' && !/^\d+(\.\d+)?$/.test(qty)) {
+      return qty;
     }
-    // Fallback to emoji icon based on product name
-    return getProductIcon(product.name);
+    
+    // Convert to number if it's a string
+    const numericQty = typeof qty === 'string' ? parseFloat(qty) : qty;
+    
+    if (!unitAbbreviation) return numericQty;
+    
+    const unit = unitAbbreviation.toLowerCase();
+    
+    // For KG - if qty is 1 or less, it means half kg (500g)
+    if (unit === 'kg' || unit === 'kgm' || unit === 'kilo') {
+      if (numericQty <= 1) return '500g';
+      if (numericQty === 0.5) return '500g';
+      return numericQty + 'kg';
+    }
+    
+    // For Dozen - if qty is 1, it means half dozen (6)
+    if (unit === 'dzn' || unit === 'dozen') {
+      if (numericQty === 1) return '6pcs';
+      return (numericQty * 12) + 'pcs';
+    }
+    
+    // For PC/PCS - just show the count
+    if (unit === 'pc' || unit === 'pcs' || unit === 'piece' || unit === 'pieces') {
+      return numericQty + 'pcs';
+    }
+    
+    // For Gram
+    if (unit === 'g' || unit === 'gm' || unit === 'gram' || unit === 'grams') {
+      if (numericQty >= 1000) return (numericQty / 1000) + 'kg';
+      return numericQty + 'g';
+    }
+    
+    // For Liter
+    if (unit === 'l' || unit === 'lt' || unit === 'liter' || unit === 'litre') {
+      if (numericQty <= 1) return (numericQty * 1000) + 'ml';
+      return numericQty + 'L';
+    }
+    
+    // For ML
+    if (unit === 'ml' || unit === 'milli') {
+      if (numericQty >= 1000) return (numericQty / 1000) + 'L';
+      return numericQty + 'ml';
+    }
+    
+    return numericQty;
   };
 
   const getProductIcon = name => {
@@ -179,7 +231,15 @@ const PackContentsScreen = () => {
       }
 
       const token = await AsyncStorage.getItem('userToken');
-      await api.addToCart({userId: user.id, packId, quantity: 1}, token);
+      await api.addToCart(
+        {
+          userId: user.id,
+          packId,
+          quantity: 1,
+          unitPrice: grandTotal,
+        },
+        token,
+      );
       alert('Pack added to cart successfully!');
       // Navigate to Cart screen which will refresh the header
       navigation.navigate('Drawer', {
@@ -221,68 +281,22 @@ const PackContentsScreen = () => {
           {category} - {packType}
         </Text>
         <Text style={styles.packPrice}>₹{grandTotal}</Text>
-        {/* Pack Details Info */}
-        {duration && (
-          <View style={styles.packDetails}>
-            {duration === 'small' && (
-              <>
-                <Text style={styles.packDetailText}>
-                  4–5 Seasonal {category?.replace(' Pack', '') || 'Items'}
-                </Text>
-                <Text style={styles.packDetailText}>Approx 3–4 Kg</Text>
-                <Text style={styles.packDetailText}>
-                  Basic Family Consumption
-                </Text>
-              </>
-            )}
-            {duration === 'medium' && (
-              <>
-                <Text style={styles.packDetailText}>
-                  6–8 {category?.replace(' Pack', '') || 'Item'} Varieties
-                </Text>
-                <Text style={styles.packDetailText}>Approx 6–8 Kg</Text>
-                <Text style={styles.packDetailText}>Kids + Working Family</Text>
-              </>
-            )}
-            {duration === 'large' && (
-              <>
-                <Text style={styles.packDetailText}>
-                  8–12 Premium + Seasonal{' '}
-                  {category?.replace(' Pack', '') || 'Items'}
-                </Text>
-                <Text style={styles.packDetailText}>10–15 Kg</Text>
-                <Text style={styles.packDetailText}>
-                  Includes Exotic (Optional)
-                </Text>
-              </>
-            )}
-          </View>
-        )}
-        {/* Credit Price Info */}
-        <View style={styles.creditInfo}>
-          <Text style={styles.creditText}>
-            💳 {grandTotal} Credits Required
-          </Text>
-          <Text style={styles.walletText}>
-            Your Wallet: {walletBalance.toFixed(0)} Credits
-            {walletBalance >= grandTotal
-              ? ' ✓'
-              : ' - Need ' + (grandTotal - walletBalance).toFixed(0) + ' more'}
-          </Text>
-        </View>
-        {/* Content (Long Description) from pack.content field */}
+        {/* Pack Details Info - Flattened to show full description */}
         {packDetails?.content && (
-          <View style={styles.contentSection}>
-            <Text style={styles.contentTitle}>About This Pack</Text>
-            <Text style={styles.contentText}>{packDetails.content}</Text>
-          </View>
+          <Text style={styles.packDetailText} numberOfLines={2}>
+            {packDetails.content.replace(/\n/g, ' ')}
+          </Text>
         )}
       </View>
 
-      <ScrollView
-        style={styles.scrollContainer}
-        contentContainerStyle={styles.scrollContent}>
-        <Text style={styles.contentsTitle}>Pack Contents</Text>
+      <View style={styles.productsSection}>
+        <View style={styles.contentsHeader}>
+          <Text style={styles.contentsTitle}>Pack Contents</Text>
+          <Text style={styles.productCount}>
+            {packDetails?.Products?.length || 0} items
+          </Text>
+          <Text style={styles.scrollHint}>↓ Scroll</Text>
+        </View>
 
         {/* Table Header */}
         <View style={styles.tableHeader}>
@@ -290,50 +304,71 @@ const PackContentsScreen = () => {
           <Text style={[styles.headerText, styles.colProduct]}>Product</Text>
           <Text style={[styles.headerText, styles.colUnit]}>Unit</Text>
           <Text style={[styles.headerText, styles.colPrice]}>Rate</Text>
-          <Text style={[styles.headerText, styles.colQty]}>KG</Text>
+          <Text style={[styles.headerText, styles.colQty]}>Qty</Text>
           <Text style={[styles.headerText, styles.colTotal]}>Value</Text>
         </View>
 
         {/* Pack Products */}
-        {(packDetails?.Products || []).map((item, index) => {
-          const unitPrice = item.PackProduct?.unitPrice || item.price || 0;
-          const qty = item.PackProduct?.quantity || 1;
-          const totalValue = unitPrice * qty;
-          const productImage = getProductImage(item);
-          const isImageFromDb = item.image != null;
-          
-          return (
-            <View key={index} style={styles.tableRow}>
-              {isImageFromDb ? (
-                <Image
-                  source={productImage}
-                  style={[styles.productIcon, styles.productImage]}
-                  resizeMode="contain"
-                />
-              ) : (
-                <Text style={[styles.productIcon, styles.productEmoji]}>
-                  {productImage}
+        <ScrollView
+          style={styles.productsScroll}
+          showsVerticalScrollIndicator={true}>
+          {(packDetails?.Products || []).map((item, index) => {
+            const unitPrice = item.PackProduct?.unitPrice || item.price || 0;
+            let qty = item.PackProduct?.quantity;
+            
+            // Defensive: If quantity is undefined, null, or a string (unit type), default to 1
+            if (qty === undefined || qty === null || typeof qty === 'string') {
+              qty = 1;
+            }
+            
+            const totalValue = unitPrice * qty;
+            const unitAbbreviation = item.PackProduct?.UnitType?.abbreviation || item.UnitType?.abbreviation || 'KG';
+            const displayQty = formatQuantity(qty, unitAbbreviation);
+            return (
+              <View key={index} style={styles.tableRow}>
+                <View style={[styles.colIcon, styles.iconContainer]}>
+                  {item.image ? (
+                    <Image
+                      source={{uri: item.image}}
+                      style={styles.productImage}
+                      resizeMode="contain"
+                    />
+                  ) : (
+                    <Text style={styles.productIcon}>
+                      {getProductIcon(item.name)}
+                    </Text>
+                  )}
+                </View>
+                <Text
+                  style={[styles.productName, styles.colProduct]}
+                  numberOfLines={1}>
+                  {item.name}
                 </Text>
-              )}
-              <Text
-                style={[styles.productName, styles.colProduct]}
-                numberOfLines={1}>
-                {item.name}
-              </Text>
-              <Text style={[styles.unitText, styles.colUnit]}>
-                {item.unitType || 'KG'}
-              </Text>
-              <Text style={[styles.priceText, styles.colPrice]}>
-                ₹{unitPrice}
-              </Text>
-              <Text style={[styles.qtyText, styles.colQty]}>{qty} KG</Text>
-              <Text style={[styles.totalText, styles.colTotal]}>
-                ₹{totalValue}
-              </Text>
-            </View>
-          );
-        })}
-      </ScrollView>
+                <Text style={[styles.unitText, styles.colUnit]}>
+                  {unitAbbreviation}
+                </Text>
+                <Text style={[styles.priceText, styles.colPrice]}>
+                  ₹{unitPrice}
+                </Text>
+                <Text style={[styles.qtyText, styles.colQty]}>
+                  {displayQty}
+                </Text>
+                <Text style={[styles.totalText, styles.colTotal]}>
+                  ₹{totalValue}
+                </Text>
+              </View>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      {/* Credit Info at Bottom */}
+      <View style={styles.bottomCreditInfo}>
+        <Text style={styles.bottomCreditText}>
+          💳 {grandTotal} Credits Required | Wallet: {walletBalance.toFixed(0)} Credits
+          {walletBalance >= grandTotal ? ' ✓' : ' - Need ' + (grandTotal - walletBalance).toFixed(0) + ' more'}
+        </Text>
+      </View>
 
       <View style={styles.floatingButtonContainer}>
         <TouchableOpacity
@@ -361,61 +396,58 @@ const styles = StyleSheet.create({
 
   packInfo: {
     backgroundColor: '#fff',
-    margin: 10,
-    padding: 12,
+    margin: 8,
+    padding: 10,
     borderRadius: 10,
     alignItems: 'center',
   },
-  packTitle: {fontSize: 18, fontWeight: 'bold'},
-  packPrice: {fontSize: 20, fontWeight: 'bold', color: '#28a745'},
+  packTitle: {fontSize: 20, fontWeight: 'bold'},
+  packPrice: {fontSize: 22, fontWeight: 'bold', color: '#28a745'},
   packDetails: {
-    marginTop: 8,
-    padding: 10,
+    marginTop: 6,
+    padding: 8,
     backgroundColor: '#f8f9fa',
     borderRadius: 8,
   },
   packDetailText: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#555',
     textAlign: 'center',
-    marginBottom: 2,
+    marginTop: 4,
   },
   creditInfo: {
-    marginTop: 8,
-    padding: 8,
+    marginTop: 6,
+    padding: 6,
     backgroundColor: '#FFF3E0',
     borderRadius: 8,
     textAlign: 'center',
   },
   creditText: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#E65100',
     fontWeight: 'bold',
     textAlign: 'center',
   },
   walletText: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#666',
-    marginTop: 4,
+    marginTop: 2,
   },
-  contentSection: {
-    marginTop: 12,
-    padding: 12,
-    backgroundColor: '#f8f9fa',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e9ecef',
+  bottomCreditInfo: {
+    position: 'absolute',
+    bottom: 60,
+    left: 0,
+    right: 0,
+    padding: 8,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
   },
-  contentTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
-  },
-  contentText: {
-    fontSize: 13,
-    color: '#555',
-    lineHeight: 20,
+  bottomCreditText: {
+    fontSize: 11,
+    color: '#666',
+    textAlign: 'center',
   },
 
   scrollContainer: {marginHorizontal: 10},
@@ -425,16 +457,16 @@ const styles = StyleSheet.create({
   tableHeader: {
     flexDirection: 'row',
     backgroundColor: '#2E7D32',
-    padding: 10,
+    padding: 8,
     borderRadius: 8,
     alignItems: 'center',
   },
   headerText: {
     color: '#fff',
     fontWeight: 'bold',
-    fontSize: 12,
+    fontSize: 13,
   },
-  colIcon: {width: 45, textAlign: 'center'},
+  colIcon: {width: 40, textAlign: 'center'},
   colProduct: {flex: 1, marginRight: 5},
   colUnit: {width: 50, textAlign: 'center'},
   colPrice: {width: 55, textAlign: 'right'},
@@ -445,7 +477,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
-    padding: 10,
+    padding: 12,
     marginTop: 6,
     borderRadius: 8,
     shadowColor: '#000',
@@ -454,31 +486,27 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
-  productIcon: {fontSize: 18, textAlign: 'center'},
-  productImage: {
-    width: 30,
-    height: 30,
-    borderRadius: 4,
+  productIcon: {fontSize: 32, textAlign: 'center'},
+  productName: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '600',
   },
-  productEmoji: {
-    fontSize: 20,
-  },
-  productName: {fontSize: 13, color: '#333'},
-  unitText: {fontSize: 12, color: '#666', textAlign: 'center'},
+  unitText: {fontSize: 13, color: '#666', textAlign: 'center', fontWeight: '500'},
   priceText: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#E65100',
     textAlign: 'right',
-    fontWeight: '500',
+    fontWeight: '600',
   },
   qtyText: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#333',
     textAlign: 'center',
-    fontWeight: '500',
+    fontWeight: '600',
   },
   totalText: {
-    fontSize: 13,
+    fontSize: 14,
     color: '#2E7D32',
     textAlign: 'right',
     fontWeight: 'bold',
@@ -507,9 +535,10 @@ const styles = StyleSheet.create({
 
   floatingButtonContainer: {
     position: 'absolute',
-    bottom: 90,
+    bottom: 110,
     left: 20,
     right: 20,
+    marginTop: 16,
   },
   addToCartButton: {
     backgroundColor: '#28a745',
@@ -520,6 +549,55 @@ const styles = StyleSheet.create({
   addToCartText: {color: '#fff', fontSize: 16, fontWeight: 'bold'},
 
   loadingText: {marginTop: 10, color: '#666'},
+  iconContainer: {
+    width: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  productImage: {
+    width: 40,
+    height: 40,
+    resizeMode: 'contain',
+  },
+
+  productIcon: {
+    fontSize: 32,
+  },
+  productsSection: {
+    flex: 1,
+    marginHorizontal: 8,
+    marginBottom: 150,
+  },
+
+  contentsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginVertical: 10,
+  },
+  scrollHint: {
+    fontSize: 12,
+    color: '#4CAF50',
+    fontWeight: 'bold',
+  },
+
+  contentsTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+
+  productCount: {
+    fontSize: 13,
+    color: '#666',
+    fontWeight: '600',
+  },
+
+  productsScroll: {
+    flex: 1,
+    marginTop: 6,
+    paddingBottom: 120,
+  },
 });
 
 export default PackContentsScreen;

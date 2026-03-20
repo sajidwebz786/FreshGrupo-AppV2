@@ -22,176 +22,85 @@ const CategoriesScreen = () => {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeSlide, setActiveSlide] = useState(0);
-  const [offers, setOffers] = useState([]);
   const scrollViewRef = useRef(null);
   const autoScrollInterval = useRef(null);
 
   const handleSelectCategory = category => {
     console.log('Category object:', category);
     console.log('Category name:', category.name);
+
     const categoryName = category.name || category;
-    console.log('Using category name:', categoryName);
+
     navigation.navigate('PackTypes', {category: categoryName});
   };
 
   useEffect(() => {
     fetchCategories();
-    fetchOffers();
     startAutoScroll();
+
     return () => clearInterval(autoScrollInterval.current);
   }, []);
 
   const fetchCategories = async () => {
     try {
       setLoading(true);
+
       const response = await api.getCategories();
-      console.log('Raw API response:', response);
-      console.log('Response type:', typeof response);
-      console.log('Is array:', Array.isArray(response));
 
-      // Ensure response is an array
+      console.log('Categories API Response:', response);
+
       const categoriesArray = Array.isArray(response) ? response : [];
-      console.log('Categories array:', categoriesArray);
 
-      // Map categories to include appropriate images - use DB image if available, else use static mapping
-      const categoriesWithImages = categoriesArray.map((category, index) => {
-        console.log('Processing category:', category);
-        // If category has image from database, use it; otherwise use static mapping
-        const categoryImage = category.image || getCategoryImage(category.name, index);
-        return {
-          ...category,
-          image: categoryImage,
-          color: getCategoryColor(index),
-        };
-      });
-      console.log('Categories with images:', categoriesWithImages);
-      setCategories(categoriesWithImages);
+      setCategories(categoriesArray);
     } catch (error) {
       console.error('Error fetching categories:', error);
-      Alert.alert('Error', 'Failed to load categories');
+      setCategories([]);
     } finally {
       setLoading(false);
     }
   };
 
-  // Fetch offers dynamically from database
-  const fetchOffers = async () => {
-    try {
-      const response = await api.getOffers();
-      if (Array.isArray(response) && response.length > 0) {
-        setOffers(response);
-      }
-    } catch (error) {
-      console.error('Error fetching offers:', error);
-      // Fallback to static offers on error - will use default carousel
-    }
-  };
-
-  const getCategoryImage = (name, index) => {
-    // Map category names to appropriate images with transparent backgrounds
-    const imageMap = {
-      'Fruits Pack': require('../images/fruits-pack-icon-removebg.png'),
-      'Vegetables Pack': require('../images/vegetables-pack-icon-removebg.png'),
-      'Grocery Pack': require('../images/grocery-pack-removebg.png'),
-      'Juices Pack': require('../images/juices-pack-removebg.png'),
-      'Millets Pack': require('../images/millet-pack-removebg.png'),
-      'Raw Powder Pack': require('../images/spices-pack-removebg.png'),
-      'Nutrition Pack': require('../images/nutrition-pack-removebg.png'),
-      'Dry Fruit Pack': require('../images/dryfruits-pack-removebg.png'),
-      'Festival Pack': require('../images/festival-pack-removebg.png'),
-      'Flower Pack': require('../images/flower-pack-removebg.png'),
-      'Sprouts Pack': require('../images/Beansprouts-removebg.png'),
-    };
-
-    // Static mapping for fallback images (React Native requires static requires)
-    const staticImages = {
-      1: require('../images/1.jpeg'),
-      2: require('../images/2.jpeg'),
-      3: require('../images/3.jpeg'),
-      4: require('../images/4.jpeg'),
-      5: require('../images/5.jpeg'),
-      6: require('../images/6.jpeg'),
-      7: require('../images/7.jpeg'),
-      8: require('../images/8.jpeg'),
-      9: require('../images/9.jpeg'),
-      10: require('../images/10.jpeg'),
-      11: require('../images/11.jpeg'),
-      12: require('../images/12.jpeg'),
-      13: require('../images/13.jpeg'),
-      14: require('../images/14.jpeg'),
-    };
-
-    // If name matches, return specific image, otherwise use index-based fallback
-    if (imageMap[name]) {
-      return imageMap[name];
-    }
-
-    // Fallback to static images
-    const imageNumber = (index % 14) + 1;
-    return staticImages[imageNumber] || staticImages[1];
-  };
-
-  const getCategoryColor = index => {
-    const colors = [
-      '#4CAF50',
-      '#FF9800',
-      '#2196F3',
-      '#9C27B0',
-      '#FF5722',
-      '#795548',
-      '#607D8B',
-      '#3F51B5',
-      '#009688',
-      '#CDDC39',
-      '#FFC107',
-      '#E91E63',
-      '#00BCD4',
-      '#8BC34A',
-    ];
-    return colors[index % colors.length];
-  };
-
-  // Auto-scroll functionality
   const startAutoScroll = () => {
     autoScrollInterval.current = setInterval(() => {
       setActiveSlide(prevSlide => {
-        const offersToUse = offers.length > 0 ? offers : defaultOffers;
-        const nextSlide = (prevSlide + 1) % offersToUse.length;
+        const nextSlide = (prevSlide + 1) % offers.length;
+
         scrollViewRef.current?.scrollTo({
           x: nextSlide * Dimensions.get('window').width,
           animated: true,
         });
+
         return nextSlide;
       });
-    }, 3000); // Change slide every 3 seconds
+    }, 3000);
   };
 
-  // Stop auto-scroll when user interacts
   const handleScrollBegin = () => {
     if (autoScrollInterval.current) {
       clearInterval(autoScrollInterval.current);
     }
   };
 
-  // Restart auto-scroll after user interaction
   const handleScrollEnd = () => {
     if (autoScrollInterval.current) {
       clearInterval(autoScrollInterval.current);
     }
+
     autoScrollInterval.current = setInterval(() => {
       setActiveSlide(prevSlide => {
-        const nextSlide = (prevSlide + 1) % displayOffers.length;
+        const nextSlide = (prevSlide + 1) % offers.length;
+
         scrollViewRef.current?.scrollTo({
           x: nextSlide * Dimensions.get('window').width,
           animated: true,
         });
+
         return nextSlide;
       });
     }, 3000);
   };
 
-  // Default offers fallback when API doesn't return data
-  const defaultOffers = [
+  const offers = [
     {
       id: 1,
       category: 'Vegetables',
@@ -215,9 +124,6 @@ const CategoriesScreen = () => {
     },
   ];
 
-  // Use state offers if available, otherwise use default fallback
-  const displayOffers = offers.length > 0 ? offers : defaultOffers;
-
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -234,11 +140,13 @@ const CategoriesScreen = () => {
         barStyle="light-content"
         translucent={true}
       />
+
       <View style={styles.headerContainer}>
         <CustomHeader />
       </View>
+
       <ImageBackground
-        source={require('../images/innerimage.png')} // Light leafy plants background
+        source={require('../images/innerimage.png')}
         style={styles.background}
         resizeMode="cover"
         opacity={0.1}>
@@ -262,25 +170,27 @@ const CategoriesScreen = () => {
               scrollEventThrottle={16}
               onTouchStart={handleScrollBegin}
               onMomentumScrollEnd={handleScrollEnd}>
-              {displayOffers.map((offer, index) => (
-                <View key={offer.id || index} style={styles.offerCard}>
+              {offers.map((offer, index) => (
+                <View key={offer.id} style={styles.offerCard}>
                   <ImageBackground
-                    source={typeof offer.image === 'string' ? { uri: offer.image } : offer.image}
+                    source={offer.image}
                     style={styles.offerBackground}
                     resizeMode="cover">
                     <View style={styles.discountOverlay}>
                       <Text style={styles.discountText}>{offer.discount}</Text>
                       <Text style={styles.offerTitle}>{offer.title}</Text>
                     </View>
+
                     <View style={styles.categoryIconContainer}>
-                      <Image source={typeof offer.image === 'string' ? { uri: offer.image } : offer.image} style={styles.categoryIcon} />
+                      <Image source={offer.image} style={styles.categoryIcon} />
                     </View>
                   </ImageBackground>
                 </View>
               ))}
             </ScrollView>
+
             <View style={styles.paginationDots}>
-              {displayOffers.map((_, index) => (
+              {offers.map((_, index) => (
                 <View
                   key={index}
                   style={[
@@ -293,33 +203,36 @@ const CategoriesScreen = () => {
               ))}
             </View>
           </View>
+
           <Text style={styles.title}>Choose Category</Text>
           <View style={styles.categoriesGrid}>
-            {categories.map((category, index) => (
-              <TouchableOpacity
-                key={category.id || index}
-                style={styles.categoryCard}
-                onPress={() => handleSelectCategory(category.name)}>
-                <Image
-                  source={typeof category.image === 'string' ? { uri: category.image } : category.image}
-                  style={styles.categoryImage}
-                  resizeMode="contain"
-                />
-                <Text style={styles.categoryTitle}>{category.name}</Text>
-              </TouchableOpacity>
-            ))}
+            {categories.length === 0 ? (
+              <View
+                style={{width: '100%', alignItems: 'center', marginTop: 20}}>
+                <Text style={{fontSize: 16, color: '#666', fontWeight: '600'}}>
+                  Categories will come soon
+                </Text>
+              </View>
+            ) : (
+              categories.map((category, index) => (
+                <TouchableOpacity
+                  key={index}
+                  style={styles.categoryCard}
+                  onPress={() => handleSelectCategory(category)}>
+                  <Image
+                    source={{uri: String(category.image)}}
+                    style={styles.categoryImage}
+                  />
+
+                  <Text style={styles.categoryTitle}>{category.name}</Text>
+                </TouchableOpacity>
+              ))
+            )}
           </View>
-          <View style={styles.sloganContainer}>
-            <Text style={styles.sloganText}>
-              Freshness Delivered to Your Doorstep!
-            </Text>
-            <Image
-              source={require('../images/logo.png')}
-              style={styles.logoImage}
-            />
-          </View>
+
         </View>
       </ImageBackground>
+
       <BottomNavigation />
     </View>
   );
@@ -346,22 +259,15 @@ const styles = StyleSheet.create({
   },
   background: {
     flex: 1,
-    backgroundColor: '#fff', // White background
-  },
-  topSpacing: {
-    height: 30, // Reduced top spacing since logo positioning adjusted
+    backgroundColor: '#fff',
   },
   scrollContainer: {
     flex: 1,
     justifyContent: 'flex-start',
     alignItems: 'stretch',
   },
-  scrollContent: {
-    paddingBottom: 80, // Space for bottom menu
-    paddingTop: 10, // Add top padding to compensate for logo positioning
-  },
   offersContainer: {
-    height: 180,
+    height: 120,
     marginVertical: 2,
   },
   offersScroll: {
@@ -385,35 +291,9 @@ const styles = StyleSheet.create({
   inactiveDot: {
     backgroundColor: '#ddd',
   },
-  sloganContainer: {
-    alignItems: 'center',
-    marginVertical: 5,
-    paddingHorizontal: 20,
-  },
-  sloganText: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#4CAF50',
-    textAlign: 'center',
-    marginBottom: 15,
-  },
-  sloganSubtext: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#666',
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 15,
-  },
-  logoImage: {
-    width: 180,
-    height: 180,
-    resizeMode: 'contain',
-    top: -80,
-  },
   offerCard: {
     width: Dimensions.get('window').width,
-    height: 180,
+    height: 120,
   },
   offerBackground: {
     flex: 1,
@@ -465,18 +345,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
-    paddingHorizontal: 15,
+    paddingHorizontal: 0,
   },
   categoryCard: {
-    width: '22%',
+    width: '30%',
     marginVertical: 5,
     marginHorizontal: 3,
     alignItems: 'center',
     paddingVertical: 5,
   },
   categoryImage: {
-    width: 60,
-    height: 60,
+    width: 80,
+    height: 80,
     marginBottom: 5,
   },
   categoryTitle: {
@@ -484,13 +364,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#000',
     textAlign: 'center',
-    numberOfLines: 2,
-  },
-  categoryText: {
-    fontSize: 10,
-    color: 'rgba(255, 255, 255, 0.9)',
-    textAlign: 'center',
-    numberOfLines: 1,
   },
 });
 

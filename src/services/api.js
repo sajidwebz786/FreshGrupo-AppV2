@@ -114,10 +114,6 @@ class ApiService {
     return this.doFetch('/public/categories', { method: 'GET' });
   }
 
-  async getOffers() {
-    return this.doFetch('/public/offers', { method: 'GET' });
-  }
-
   async getPacksByCategory(categoryId) {
     return this.doFetch(`/public/categories/${categoryId}/packs`, { method: 'GET' });
   }
@@ -127,8 +123,8 @@ class ApiService {
   }
 
   async getPackDetails(packId) {
-    // server exposes /api/public/packs/:id for pack details
-    return this.doFetch(`/public/packs/${packId}`, { method: 'GET' });
+    // server exposes /api/packs/:id and /api/public/packs; adjust if needed
+    return this.doFetch(`/packs/${packId}`, { method: 'GET' });
   }
 
   // Cart (protected)

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, {useState, useEffect, useCallback} from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,12 @@ import {
   StatusBar,
   Platform,
 } from 'react-native';
-import { useNavigation, useRoute, CommonActions } from '@react-navigation/native';
+import {
+  useNavigation,
+  useRoute,
+  CommonActions,
+  useFocusEffect,
+} from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import RazorpayCheckout from 'react-native-razorpay';
 import CustomHeader from '../components/CustomHeader';
@@ -21,8 +26,7 @@ const PaymentScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
 
-  const { cartItems = [], deliveryAddress, totalAmount = 0 } =
-    route.params || {};
+  const {cartItems = [], deliveryAddress, totalAmount = 0} = route.params || {};
 
   const [processing, setProcessing] = useState(false);
   const [walletBalance, setWalletBalance] = useState(0);
@@ -31,12 +35,14 @@ const PaymentScreen = () => {
 
   const [timeSlot, setTimeSlot] = useState('');
 
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(null);
 
-  const dates = Array.from({ length: 10 }, (_, i) => new Date(Date.now() + i * 24 * 60 * 60 * 1000));
+  const dates = Array.from(
+    {length: 10},
+    (_, i) => new Date(Date.now() + (i + 1) * 24 * 60 * 60 * 1000),
+  );
 
   // Fetch wallet balance
- useEffect(() => {
   const fetchWallet = async () => {
     try {
       const token = await AsyncStorage.getItem('userToken');
@@ -49,12 +55,10 @@ const PaymentScreen = () => {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
-        }
+        },
       );
 
       const data = await response.json();
-
-      console.log("Wallet API Response:", data);
 
       if (data.wallet) {
         setWalletBalance(parseFloat(data.wallet.balance) || 0);
@@ -66,119 +70,80 @@ const PaymentScreen = () => {
     }
   };
 
-  fetchWallet();
-}, []);
+  useFocusEffect(
+    useCallback(() => {
+      fetchWallet();
+    }, []),
+  );
 
   // Calculate final amount based on wallet usage
   const walletDiscount = useWallet ? Math.min(walletBalance, totalAmount) : 0;
   const finalAmount = totalAmount - walletDiscount;
 
+  const validateDelivery = () => {
+    if (!selectedDate) {
+      Alert.alert('Error', 'Please select delivery date');
+      return false;
+    }
+
+    if (!timeSlot || timeSlot.trim() === '') {
+      Alert.alert('Error', 'Please select delivery time slot');
+      return false;
+    }
+
+    return true;
+  };
   /* =========================
       WALLET PAYMENT
    ========================= */
   const handleWalletPayment = async () => {
-    if (walletBalance < totalAmount) {
-      Alert.alert(
-        'Insufficient Wallet Balance',
-        `Your wallet balance is ₹${walletBalance.toFixed(2)}. You need ₹${totalAmount.toFixed(2)}. Would you like to add more credits?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Add Credits', onPress: () => navigation.navigate('BuyCredits') },
-        ]
-      );
-      return;
-    }
+    if (!validateDelivery()) return;
 
     try {
       setProcessing(true);
 
       const userData = await AsyncStorage.getItem('userData');
-      const currentUser = userData ? JSON.parse(userData) : null;
+      const currentUser = JSON.parse(userData);
+      const token = await AsyncStorage.getItem('userToken');
 
-      if (!currentUser?.id) {
-        Alert.alert('Error', 'User not logged in');
-        return;
-      }
-
-      // Create order - server will handle wallet deduction automatically
-      const orderPayload = {
-        userId: currentUser.id,
-        quantity: cartItems.reduce((s, i) => s + i.quantity, 0),
-        deliveryAddress,
-        paymentMethod: 'wallet',
-        totalAmount,
-        packId: cartItems[0]?.packId,
-        isCustom: cartItems[0]?.isCustom || false,
-        customPackName: cartItems[0]?.customPackName,
-        customPackItems: cartItems[0]?.customPackItems,
-        timeSlot,
-        deliveryDate: selectedDate.toISOString(),
-      };
-
-      const orderRes = await fetch(
-        'https://freshgrupo-server.onrender.com/api/orders',
+      const res = await fetch(
+        'https://freshgrupo-server.onrender.com/api/orders/wallet/checkout',
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(orderPayload),
-        }
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            userId: currentUser.id,
+            deliveryAddress,
+            timeSlot,
+            deliveryDate: selectedDate.toISOString(),
+          }),
+        },
       );
 
-      const orderData = await orderRes.json();
-      
-      if (!orderRes.ok) {
-        // If order failed due to insufficient balance, show appropriate error
-        if (orderData.error === 'Insufficient wallet balance') {
-          Alert.alert(
-            'Insufficient Wallet Balance',
-            `Your wallet balance is ₹${walletBalance.toFixed(2)}. You need ₹${totalAmount.toFixed(2)}. Would you like to add more credits?`,
-            [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Add Credits', onPress: () => navigation.navigate('BuyCredits') },
-            ]
-          );
-          return;
-        }
-        throw new Error(orderData.error || 'Order failed');
-      }
+      const data = await res.json();
 
-      // Get updated wallet balance from order response
-      const updatedWalletBalance = orderData.walletBalance;
+      if (!res.ok) throw new Error(data.error);
 
-      // Clear all cart items at once using the bulk clear endpoint
-      try {
-        const userData = await AsyncStorage.getItem('userData');
-        const currentUser = userData ? JSON.parse(userData) : null;
-        
-        if (currentUser?.id) {
-          const clearRes = await fetch(`https://freshgrupo-server.onrender.com/api/cart/clear/${currentUser.id}`, {
-            method: 'DELETE'
-          });
-          if (clearRes.ok) {
-            console.log('Cart cleared successfully');
-          } else {
-            console.warn('Failed to clear cart:', clearRes.status);
-          }
-        }
-      } catch (err) {
-        console.error('Error clearing cart:', err);
-      }
+      Alert.alert('Success', 'Order placed successfully');
 
-      const successMessage = updatedWalletBalance !== undefined && updatedWalletBalance !== null
-        ? `Order placed successfully! Remaining wallet balance: ₹${updatedWalletBalance.toFixed(2)}`
-        : 'Order placed successfully! Credits have been deducted from your wallet.';
-
-      Alert.alert('Success', successMessage);
       navigation.dispatch(
         CommonActions.reset({
           index: 0,
-          routes: [{ name: 'Drawer' }],
-        })
+          routes: [
+            {
+              name: 'Drawer',
+              state: {
+                routes: [{name: 'OrderHistory'}],
+              },
+            },
+          ],
+        }),
       );
-
     } catch (err) {
-      console.error('Wallet Payment Error:', err);
-      Alert.alert('Error', err.message || 'Payment failed');
+      Alert.alert('Error', err.message);
     } finally {
       setProcessing(false);
     }
@@ -188,155 +153,94 @@ const PaymentScreen = () => {
       RAZORPAY PAYMENT
    ========================= */
   const handleRazorpayPayment = async () => {
-      try {
-        setProcessing(true);
+    if (!validateDelivery()) return;
+
+    try {
+      setProcessing(true);
 
       const userData = await AsyncStorage.getItem('userData');
-      const currentUser = userData ? JSON.parse(userData) : null;
+      const currentUser = JSON.parse(userData);
       const token = await AsyncStorage.getItem('userToken');
 
-      if (!currentUser?.id) {
-        Alert.alert('Error', 'User not logged in');
-        return;
-      }
-
-      // Create order with Razorpay payment method - server will create razorpay order
-      const orderPayload = {
-        userId: currentUser.id,
-        quantity: cartItems.reduce((s, i) => s + i.quantity, 0),
-        deliveryAddress,
-        paymentMethod: 'razorpay',
-        totalAmount: finalAmount,
-        packId: cartItems[0]?.packId,
-        isCustom: cartItems[0]?.isCustom || false,
-        customPackName: cartItems[0]?.customPackName,
-        customPackItems: cartItems[0]?.customPackItems,
-        timeSlot,
-        deliveryDate: selectedDate.toISOString(),
-      };
-
-      // Create order on server - this will return razorpayOrderId if paymentMethod is razorpay
-      const orderRes = await fetch(
-        'https://freshgrupo-server.onrender.com/api/orders',
-        {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`
-          },
-          body: JSON.stringify(orderPayload),
-        }
-      );
-
-      if (!orderRes.ok) {
-        const errorData = await orderRes.json();
-        throw new Error(errorData.error || 'Failed to create order');
-      }
-
-      const orderData = await orderRes.json();
-      
-      if (!orderData || !orderData.id) {
-        throw new Error('Failed to create order');
-      }
-
-      // First create Razorpay order to get the key
-      const razorpayOrderRes = await fetch(
+      // ✅ STEP 1: INITIATE PAYMENT
+      const initRes = await fetch(
         'https://freshgrupo-server.onrender.com/api/orders/razorpay/create-order',
         {
           method: 'POST',
-          headers: { 
+          headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
-            packageId: cartItems[0]?.packId,
-            customer: {
-              name: currentUser?.name,
-              email: currentUser?.email,
-              phone: currentUser?.phone
-            }
+            userId: currentUser.id,
+            useWallet,
           }),
-        }
+        },
       );
 
-      const razorpayOrderData = await razorpayOrderRes.json();
-      
-      if (!razorpayOrderRes.ok || !razorpayOrderData.razorpayOrderId) {
-        console.error('Razorpay order error:', razorpayOrderData);
-        throw new Error(razorpayOrderData.error || 'Failed to create Razorpay order');
-      }
+      const initData = await initRes.json();
 
-      // Open Razorpay payment gateway with the key from server
-      const razorpayKey = razorpayOrderData.key || razorpayOrderData.RAZORPAY_KEY_ID;
-      
+      if (!initRes.ok) throw new Error(initData.error);
+
       const options = {
-        description: 'Payment for Fresh Grupo Order',
+        description: 'Fresh Grupo Order',
         currency: 'INR',
-        key: razorpayKey,
-        amount: razorpayOrderData.amount,
+        key: initData.key,
+        amount: initData.amount,
         name: 'Fresh Grupo',
         prefill: {
-          email: currentUser?.email || '',
-          contact: currentUser?.phone || '',
-          name: currentUser?.name || '',
+          email: currentUser.email,
+          contact: currentUser.phone,
+          name: currentUser.name,
         },
-        theme: { color: '#4CAF50' },
+        theme: {color: '#4CAF50'},
       };
 
+      // ✅ STEP 2: OPEN RAZORPAY
       const paymentData = await RazorpayCheckout.open(options);
 
-      // Update payment status on server
-      const updatePaymentRes = await fetch(
-        `https://freshgrupo-server.onrender.com/api/orders/${orderData.id}/payment`,
+      // ✅ STEP 3: VERIFY + CREATE ORDER
+      const verifyRes = await fetch(
+        'https://freshgrupo-server.onrender.com/api/orders/razorpay/verify',
         {
-          method: 'PUT',
-          headers: { 
+          method: 'POST',
+          headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}` 
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
+            userId: currentUser.id,
             razorpayPaymentId: paymentData.razorpay_payment_id,
             razorpayOrderId: paymentData.razorpay_order_id,
-            status: 'completed',
+            walletUsed: initData.walletUsed,
+            deliveryAddress,
+            timeSlot,
+            deliveryDate: selectedDate.toISOString(),
           }),
-        }
+        },
       );
 
-      if (!updatePaymentRes.ok) {
-        console.warn('Failed to update payment status on server');
-      }
+      const verifyData = await verifyRes.json();
 
-      // Clear cart
-      try {
-        const userData = await AsyncStorage.getItem('userData');
-        const currentUser = userData ? JSON.parse(userData) : null;
-        
-        if (currentUser?.id) {
-          const clearRes = await fetch(`https://freshgrupo-server.onrender.com/api/cart/clear/${currentUser.id}`, {
-            method: 'DELETE'
-          });
-          if (clearRes.ok) {
-            console.log('Cart cleared successfully');
-          }
-        }
-      } catch (err) {
-        console.error('Error clearing cart:', err);
-      }
+      if (!verifyRes.ok) throw new Error(verifyData.error);
 
-      Alert.alert('Success', 'Order placed successfully!');
+      Alert.alert('Success', 'Order placed successfully');
+
       navigation.dispatch(
         CommonActions.reset({
           index: 0,
-          routes: [{ name: 'Drawer' }],
-        })
+          routes: [
+            {
+              name: 'Drawer',
+              state: {
+                routes: [{name: 'OrderHistory'}],
+              },
+            },
+          ],
+        }),
       );
-
     } catch (err) {
-      console.error('Razorpay Payment Error:', err);
-      Alert.alert(
-        'Payment Error',
-        'Unable to process online payment. Please use Cash on Delivery or Wallet payment instead.'
-      );
+      Alert.alert('Payment Failed', err.message);
     } finally {
       setProcessing(false);
     }
@@ -347,73 +251,57 @@ const PaymentScreen = () => {
   ========================= */
 
   const handleCOD = async () => {
+    if (!validateDelivery()) return;
+
     try {
       setProcessing(true);
 
       const userData = await AsyncStorage.getItem('userData');
-      const currentUser = userData ? JSON.parse(userData) : null;
-
-      if (!currentUser?.id) {
-        Alert.alert('Error', 'User not logged in');
-        return;
-      }
-
-      const orderPayload = {
-        userId: currentUser.id,
-        quantity: cartItems.reduce((s, i) => s + i.quantity, 0),
-        deliveryAddress,
-        paymentMethod: 'cod',
-        totalAmount,
-        packId: cartItems[0]?.packId,
-        isCustom: cartItems[0]?.isCustom || false,
-        customPackName: cartItems[0]?.customPackName,
-        customPackItems: cartItems[0]?.customPackItems,
-        timeSlot,
-        deliveryDate: selectedDate.toISOString(),
-      };
+      const currentUser = JSON.parse(userData);
+      const token = await AsyncStorage.getItem('userToken');
 
       const res = await fetch(
-        'https://freshgrupo-server.onrender.com/api/orders',
+        'https://freshgrupo-server.onrender.com/api/orders/cod/checkout',
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(orderPayload),
-        }
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            userId: currentUser.id,
+            deliveryAddress,
+            timeSlot,
+            deliveryDate: selectedDate.toISOString(),
+            useWallet, // ✅ IMPORTANT
+          }),
+        },
       );
 
-      if (!res.ok) throw new Error('Order failed');
+      const data = await res.json();
 
-      // Clear all cart items at once using the bulk clear endpoint
-      try {
-        const userData = await AsyncStorage.getItem('userData');
-        const currentUser = userData ? JSON.parse(userData) : null;
-        
-        if (currentUser?.id) {
-          const clearRes = await fetch(`https://freshgrupo-server.onrender.com/api/cart/clear/${currentUser.id}`, {
-            method: 'DELETE'
-          });
-          if (clearRes.ok) {
-            console.log('Cart cleared successfully');
-          } else {
-            console.warn('Failed to clear cart:', clearRes.status);
-          }
-        }
-      } catch (err) {
-        console.error('Error clearing cart:', err);
-      }
+      if (!res.ok) throw new Error(data.error);
 
-      Alert.alert('Success', 'Order placed successfully!');
-      // Force navigation to home and reset the navigation state
+      Alert.alert(
+        'Order Placed',
+        `Wallet Used: ₹${data.walletUsed}\nCOD Amount: ₹${data.codAmount}`,
+      );
+
       navigation.dispatch(
         CommonActions.reset({
           index: 0,
-          routes: [{ name: 'Drawer' }],
-        })
+          routes: [
+            {
+              name: 'Drawer',
+              state: {
+                routes: [{name: 'OrderHistory'}],
+              },
+            },
+          ],
+        }),
       );
-
     } catch (err) {
-      console.error('COD Error:', err);
-      Alert.alert('Error', err.message || 'Order failed');
+      Alert.alert('Error', err.message);
     } finally {
       setProcessing(false);
     }
@@ -432,7 +320,11 @@ const PaymentScreen = () => {
    ========================= */
   return (
     <View style={styles.container}>
-      <StatusBar backgroundColor="#4CAF50" barStyle="light-content" translucent={true} />
+      <StatusBar
+        backgroundColor="#4CAF50"
+        barStyle="light-content"
+        translucent={true}
+      />
       <View style={styles.headerContainer}>
         <CustomHeader />
       </View>
@@ -453,16 +345,24 @@ const PaymentScreen = () => {
                 <Ionicons name="wallet" size={24} color="#4CAF50" />
                 <View style={styles.walletTextContainer}>
                   <Text style={styles.walletTitle}>Wallet Balance</Text>
-                  <Text style={styles.walletBalance}>₹{walletBalance.toFixed(2)}</Text>
+                  <Text style={styles.walletBalance}>
+                    ₹{walletBalance.toFixed(2)}
+                  </Text>
                 </View>
               </View>
               {walletBalance > 0 && (
                 <TouchableOpacity
-                  style={[styles.walletToggle, useWallet && styles.walletToggleActive]}
-                  onPress={() => setUseWallet(!useWallet)}
-                >
-                  <Text style={[styles.walletToggleText, useWallet && styles.walletToggleTextActive]}>
-                    {useWallet ? 'Using' : 'Use'}
+                  style={[
+                    styles.useWalletButton,
+                    useWallet && styles.useWalletButtonActive,
+                  ]}
+                  onPress={() => setUseWallet(!useWallet)}>
+                  <Text
+                    style={[
+                      styles.useWalletButtonText,
+                      useWallet && styles.useWalletButtonTextActive,
+                    ]}>
+                    {useWallet ? '✓ Using Wallet' : 'Use Wallet'}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -480,8 +380,7 @@ const PaymentScreen = () => {
             {/* Add to Wallet Button */}
             <TouchableOpacity
               style={styles.addWalletButton}
-              onPress={handleAddToWallet}
-            >
+              onPress={handleAddToWallet}>
               <Ionicons name="add-circle" size={20} color="#fff" />
               <Text style={styles.addWalletText}>Add Money to Wallet</Text>
             </TouchableOpacity>
@@ -493,16 +392,33 @@ const PaymentScreen = () => {
             <Ionicons name="calendar-outline" size={20} color="#4CAF50" />
             <Text style={styles.dateTitle}>Select Delivery Date</Text>
           </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.dateScroll}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.dateScroll}>
             {dates.map((date, index) => (
               <TouchableOpacity
                 key={index}
-                style={[styles.dateButton, selectedDate.toDateString() === date.toDateString() && styles.selectedDate]}
+                style={[
+                  styles.dateButton,
+                  selectedDate &&
+                    selectedDate.toDateString() === date.toDateString() &&
+                    styles.selectedDate,
+                ]}
                 onPress={() => setSelectedDate(date)}
-                disabled={processing}
-              >
-                <Text style={[styles.dateText, selectedDate.toDateString() === date.toDateString() && styles.selectedDateText]}>
-                  {date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                disabled={processing}>
+                <Text
+                  style={[
+                    styles.dateText,
+                    selectedDate &&
+                      selectedDate.toDateString() === date.toDateString() &&
+                      styles.selectedDateText,
+                  ]}>
+                  {date.toLocaleDateString('en-US', {
+                    weekday: 'short',
+                    month: 'short',
+                    day: 'numeric',
+                  })}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -515,20 +431,30 @@ const PaymentScreen = () => {
             <Text style={styles.slotTitle}>Select Delivery Time Slot</Text>
           </View>
           <View style={styles.slotButtons}>
-            {['9 AM - 11 AM', '11 AM - 1 PM', '1 PM - 3 PM', '3 PM - 5 PM'].map((slot) => (
-              <TouchableOpacity
-                key={slot}
-                style={[styles.slotButton, timeSlot === slot && styles.selected]}
-                onPress={() => setTimeSlot(slot)}
-                disabled={processing}
-              >
-                <Text style={[styles.slotText, timeSlot === slot && styles.selectedText]}>{slot}</Text>
-              </TouchableOpacity>
-            ))}
+            {['9 AM - 11 AM', '11 AM - 1 PM', '1 PM - 3 PM', '3 PM - 5 PM'].map(
+              slot => (
+                <TouchableOpacity
+                  key={slot}
+                  style={[
+                    styles.slotButton,
+                    timeSlot === slot && styles.selected,
+                  ]}
+                  onPress={() => setTimeSlot(slot)}
+                  disabled={processing}>
+                  <Text
+                    style={[
+                      styles.slotText,
+                      timeSlot === slot && styles.selectedText,
+                    ]}>
+                    {slot}
+                  </Text>
+                </TouchableOpacity>
+              ),
+            )}
           </View>
         </View>
 
-        <TouchableOpacity
+        {/* <TouchableOpacity
           style={[styles.payButton, processing && styles.disabled]}
           onPress={handleRazorpayPayment}
           disabled={processing}
@@ -536,8 +462,8 @@ const PaymentScreen = () => {
           <Text style={styles.payText}>
             {processing ? 'Processing...' : `Pay Online ₹${useWallet ? finalAmount : totalAmount}`}
           </Text>
-        </TouchableOpacity>
-
+        </TouchableOpacity> */}
+        {/* 
         {walletBalance > 0 && (
           <TouchableOpacity
             style={[styles.walletPayButton, processing && styles.disabled]}
@@ -549,15 +475,49 @@ const PaymentScreen = () => {
               {processing ? 'Processing...' : `Pay with Wallet ₹${useWallet ? finalAmount : totalAmount}`}
             </Text>
           </TouchableOpacity>
-        )}
+        )} */}
 
-        <TouchableOpacity
+        {/* <TouchableOpacity
           style={[styles.codButton, processing && styles.disabled]}
           onPress={handleCOD}
           disabled={processing}
         >
           <Text style={styles.codText}>Cash on Delivery</Text>
-        </TouchableOpacity>
+        </TouchableOpacity> */}
+
+        {finalAmount === 0 ? (
+          // ✅ FULL WALLET PAYMENT
+          <TouchableOpacity
+            style={styles.payButton}
+            onPress={handleWalletPayment}
+            disabled={processing}>
+            <Text style={styles.payText}>
+              {processing ? 'Processing...' : 'Place Order (Wallet)'}
+            </Text>
+          </TouchableOpacity>
+        ) : (
+          <>
+            {/* ✅ ONLINE PAYMENT */}
+            <TouchableOpacity
+              style={styles.payButton}
+              onPress={handleRazorpayPayment}
+              disabled={processing}>
+              <Text style={styles.payText}>
+                {processing ? 'Processing...' : `Pay Online ₹${finalAmount}`}
+              </Text>
+            </TouchableOpacity>
+
+            {/* ✅ COD */}
+            <TouchableOpacity
+              style={styles.codButton}
+              onPress={handleCOD}
+              disabled={processing}>
+              <Text style={styles.codText}>
+                Cash on Delivery ₹{finalAmount}
+              </Text>
+            </TouchableOpacity>
+          </>
+        )}
       </ScrollView>
 
       <BottomNavigation />
@@ -566,53 +526,186 @@ const PaymentScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8f9fa' },
-  headerContainer: { backgroundColor: '#4CAF50', paddingTop: 50, paddingBottom: 10, alignItems: 'center' },
-  scroll: { padding: 20, paddingBottom: 120 },
-  title: { fontSize: 20, fontWeight: 'bold', textAlign: 'center', marginBottom: 20 },
-  amountBox: { backgroundColor: '#fff', padding: 15, borderRadius: 10, marginBottom: 20 },
-  amountLabel: { fontSize: 16, color: '#666' },
-  amount: { fontSize: 22, fontWeight: 'bold', color: '#4CAF50', marginTop: 5 },
-  
+  container: {flex: 1, backgroundColor: '#f8f9fa'},
+  headerContainer: {
+    backgroundColor: '#4CAF50',
+    paddingTop: 50,
+    paddingBottom: 10,
+    alignItems: 'center',
+  },
+  scroll: {padding: 20, paddingBottom: 120},
+  title: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  amountBox: {
+    backgroundColor: '#fff',
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 20,
+  },
+  amountLabel: {fontSize: 16, color: '#666'},
+  amount: {fontSize: 22, fontWeight: 'bold', color: '#4CAF50', marginTop: 5},
+
   // Wallet styles
-  walletBox: { backgroundColor: '#fff', padding: 15, borderRadius: 10, marginBottom: 20, borderWidth: 1, borderColor: '#4CAF50' },
-  walletHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  walletInfo: { flexDirection: 'row', alignItems: 'center' },
-  walletTextContainer: { marginLeft: 12 },
-  walletTitle: { fontSize: 14, color: '#666' },
-  walletBalance: { fontSize: 18, fontWeight: 'bold', color: '#4CAF50' },
-  walletToggle: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: '#e0e0e0' },
-  walletToggleActive: { backgroundColor: '#4CAF50' },
-  walletToggleText: { fontSize: 14, fontWeight: 'bold', color: '#666' },
-  walletToggleTextActive: { color: '#fff' },
-  walletDiscount: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#eee' },
-  walletDiscountText: { fontSize: 14, color: '#4CAF50', fontWeight: 'bold' },
-  finalAmountText: { fontSize: 16, color: '#333', fontWeight: 'bold', marginTop: 4 },
-  addWalletButton: { backgroundColor: '#FF9800', padding: 12, borderRadius: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 12 },
-  addWalletText: { color: '#fff', fontSize: 14, fontWeight: 'bold', marginLeft: 8 },
-  
-  payButton: { backgroundColor: '#4CAF50', padding: 15, borderRadius: 10, marginBottom: 15 },
-  walletPayButton: { backgroundColor: '#FF9800', padding: 15, borderRadius: 10, marginBottom: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
-  walletPayText: { color: '#fff', fontSize: 18, textAlign: 'center', fontWeight: 'bold' },
-  payText: { color: '#fff', fontSize: 18, textAlign: 'center', fontWeight: 'bold' },
-  codButton: { borderWidth: 2, borderColor: '#4CAF50', padding: 15, borderRadius: 10 },
-  codText: { color: '#4CAF50', fontSize: 18, textAlign: 'center', fontWeight: 'bold' },
-  disabled: { opacity: 0.6 },
-  slotContainer: { backgroundColor: '#fff', padding: 15, borderRadius: 10, marginBottom: 20 },
-  slotTitle: { fontSize: 16, fontWeight: 'bold', color: '#333', marginLeft: 8 },
-  slotButtons: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
-  slotButton: { borderWidth: 1, borderColor: '#4CAF50', padding: 10, borderRadius: 5, marginBottom: 10, width: '48%', alignItems: 'center' },
-  selected: { backgroundColor: '#4CAF50' },
-  slotText: { color: '#4CAF50', fontWeight: 'bold' },
-  selectedText: { color: '#fff' },
-  dateContainer: { backgroundColor: '#fff', padding: 15, borderRadius: 10, marginBottom: 20 },
-  titleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  dateTitle: { fontSize: 16, fontWeight: 'bold', color: '#333', marginLeft: 8 },
-  dateScroll: { marginBottom: 10 },
-  dateButton: { borderWidth: 1, borderColor: '#4CAF50', padding: 10, borderRadius: 5, alignItems: 'center', marginRight: 10, minWidth: 80 },
-  selectedDate: { backgroundColor: '#4CAF50' },
-  dateText: { color: '#4CAF50', fontWeight: 'bold', fontSize: 12 },
-  selectedDateText: { color: '#fff' },
+  walletBox: {
+    backgroundColor: '#fff',
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#4CAF50',
+  },
+  walletHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  walletInfo: {flexDirection: 'row', alignItems: 'center'},
+  walletTextContainer: {marginLeft: 12},
+  walletTitle: {fontSize: 14, color: '#666'},
+  walletBalance: {fontSize: 18, fontWeight: 'bold', color: '#4CAF50'},
+  useWalletButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 25,
+    backgroundColor: '#4CAF50',
+    borderWidth: 2,
+    borderColor: '#4CAF50',
+    shadowColor: '#4CAF50',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  useWalletButtonActive: {
+    backgroundColor: '#2E7D32',
+    borderColor: '#2E7D32',
+  },
+  useWalletButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  useWalletButtonTextActive: {
+    color: '#fff',
+  },
+  walletDiscount: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+  },
+  walletDiscountText: {fontSize: 14, color: '#4CAF50', fontWeight: 'bold'},
+  finalAmountText: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: 'bold',
+    marginTop: 4,
+  },
+  addWalletButton: {
+    backgroundColor: '#FF9800',
+    padding: 12,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 12,
+  },
+  addWalletText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+
+  payButton: {
+    backgroundColor: '#4CAF50',
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 15,
+  },
+  walletPayButton: {
+    backgroundColor: '#FF9800',
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  walletPayText: {
+    color: '#fff',
+    fontSize: 18,
+    textAlign: 'center',
+    fontWeight: 'bold',
+  },
+  payText: {
+    color: '#fff',
+    fontSize: 18,
+    textAlign: 'center',
+    fontWeight: 'bold',
+  },
+  codButton: {
+    borderWidth: 2,
+    borderColor: '#4CAF50',
+    padding: 15,
+    borderRadius: 10,
+  },
+  codText: {
+    color: '#4CAF50',
+    fontSize: 18,
+    textAlign: 'center',
+    fontWeight: 'bold',
+  },
+  disabled: {opacity: 0.6},
+  slotContainer: {
+    backgroundColor: '#fff',
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 20,
+  },
+  slotTitle: {fontSize: 16, fontWeight: 'bold', color: '#333', marginLeft: 8},
+  slotButtons: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  slotButton: {
+    borderWidth: 1,
+    borderColor: '#4CAF50',
+    padding: 10,
+    borderRadius: 5,
+    marginBottom: 10,
+    width: '48%',
+    alignItems: 'center',
+  },
+  selected: {backgroundColor: '#4CAF50'},
+  slotText: {color: '#4CAF50', fontWeight: 'bold'},
+  selectedText: {color: '#fff'},
+  dateContainer: {
+    backgroundColor: '#fff',
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 20,
+  },
+  titleRow: {flexDirection: 'row', alignItems: 'center', marginBottom: 10},
+  dateTitle: {fontSize: 16, fontWeight: 'bold', color: '#333', marginLeft: 8},
+  dateScroll: {marginBottom: 10},
+  dateButton: {
+    borderWidth: 1,
+    borderColor: '#4CAF50',
+    padding: 10,
+    borderRadius: 5,
+    alignItems: 'center',
+    marginRight: 10,
+    minWidth: 80,
+  },
+  selectedDate: {backgroundColor: '#4CAF50'},
+  dateText: {color: '#4CAF50', fontWeight: 'bold', fontSize: 12},
+  selectedDateText: {color: '#fff'},
 });
 
 export default PaymentScreen;
