@@ -333,7 +333,7 @@ const PackContentsScreen = () => {
                   {item.name}
                 </Text>
                 <Text style={[styles.unitText, {width: 55, textAlign: 'center'}]}>
-                  {item.PackProduct?.unitTypeAbbreviation || item.UnitType?.abbreviation || ''}
+                  {item.PackProduct?.UnitType?.abbreviation || item.UnitType?.abbreviation || ''}
                 </Text>
                 <Text style={[styles.qtyText, styles.colQty]}>
                   {qtyDisplay}
