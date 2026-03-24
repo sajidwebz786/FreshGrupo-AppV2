@@ -158,10 +158,13 @@ const CartScreen = () => {
     }
   };
 
-  const calculateTotal = () =>
-    cartItems
-      .reduce((sum, item) => sum + Number(item.totalPrice || 0), 0)
-      .toFixed(2);
+
+  const calculateSubtotal = () =>
+    cartItems.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
+
+  const calculateGST = () => (calculateSubtotal() * 0.18);
+
+  const calculateTotalWithGST = () => (calculateSubtotal() + calculateGST()).toFixed(2);
 
   const addNewAddress = async () => {
     if (!newAddress.trim() || !newAddressName.trim()) {
@@ -467,7 +470,11 @@ const CartScreen = () => {
               <Text style={styles.summaryTitle}>💰 Summary</Text>
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Subtotal</Text>
-                <Text style={styles.summaryValue}>₹{calculateTotal()}</Text>
+                <Text style={styles.summaryValue}>₹{calculateSubtotal().toFixed(2)}</Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>GST (18%)</Text>
+                <Text style={styles.summaryValue}>₹{calculateGST().toFixed(2)}</Text>
               </View>
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Delivery</Text>
@@ -478,7 +485,7 @@ const CartScreen = () => {
               <View style={styles.summaryDivider} />
               <View style={styles.summaryRow}>
                 <Text style={styles.totalLabel}>Total</Text>
-                <Text style={styles.totalValue}>₹{calculateTotal()}</Text>
+                <Text style={styles.totalValue}>₹{calculateTotalWithGST()}</Text>
               </View>
             </View>
 
@@ -486,7 +493,14 @@ const CartScreen = () => {
               <View style={styles.checkoutContainer}>
                 <TouchableOpacity
                   style={styles.checkoutButton}
-                  onPress={handleCheckout}>
+                  onPress={() => {
+                    navigation.navigate('Payment', {
+                      cartItems,
+                      deliveryAddress,
+                      totalAmount: parseFloat(calculateTotalWithGST()),
+                      gstAmount: parseFloat(calculateGST().toFixed(2)),
+                    });
+                  }}>
                   <Text style={styles.checkoutText}>💳 Proceed to Payment</Text>
                 </TouchableOpacity>
               </View>

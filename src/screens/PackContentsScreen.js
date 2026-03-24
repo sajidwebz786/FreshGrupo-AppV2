@@ -89,9 +89,17 @@ const PackContentsScreen = () => {
       setPackDetails(packData);
 
       if (packData?.Products?.length) {
-        const total = packData.Products.reduce((sum, item) => {
+        // Sort products alphabetically by name
+        const sortedProducts = [...packData.Products].sort((a, b) => {
+          const nameA = a.name || '';
+          const nameB = b.name || '';
+          return nameA.localeCompare(nameB);
+        });
+        packData.Products = sortedProducts;
+        
+        const total = sortedProducts.reduce((sum, item) => {
           const price = item.PackProduct?.unitPrice || item.price || 0;
-          const qty = item.PackProduct?.quantity || 1;
+          const qty = parseFloat(item.PackProduct?.quantity) || 1;
           return sum + price * qty;
         }, 0);
         setGrandTotal(total);
@@ -103,57 +111,27 @@ const PackContentsScreen = () => {
     }
   };
 
-  // Format quantity based on unit type
+    // Format quantity - remove extra decimals
   const formatQuantity = (qty, unitAbbreviation) => {
-    // If qty is a string (like 'kg', 'dozen'), it's already the unit type - return as is
-    if (typeof qty === 'string' && !/^\d+(\.\d+)?$/.test(qty)) {
-      return qty;
+    // Handle invalid qty
+    if (qty === undefined || qty === null) {
+      return '1';
     }
     
-    // Convert to number if it's a string
-    const numericQty = typeof qty === 'string' ? parseFloat(qty) : qty;
-    
-    if (!unitAbbreviation) return numericQty;
-    
-    const unit = unitAbbreviation.toLowerCase();
-    
-    // For KG - if qty is 1 or less, it means half kg (500g)
-    if (unit === 'kg' || unit === 'kgm' || unit === 'kilo') {
-      if (numericQty <= 1) return '500g';
-      if (numericQty === 0.5) return '500g';
-      return numericQty + 'kg';
+    // Convert to number
+    let numericQty = qty;
+    if (typeof qty === 'string') {
+      numericQty = parseFloat(qty);
     }
     
-    // For Dozen - if qty is 1, it means half dozen (6)
-    if (unit === 'dzn' || unit === 'dozen') {
-      if (numericQty === 1) return '6pcs';
-      return (numericQty * 12) + 'pcs';
+    // If not a valid number, return the original value or '1'
+    if (isNaN(numericQty)) {
+      return String(qty) || '1';
     }
     
-    // For PC/PCS - just show the count
-    if (unit === 'pc' || unit === 'pcs' || unit === 'piece' || unit === 'pieces') {
-      return numericQty + 'pcs';
-    }
-    
-    // For Gram
-    if (unit === 'g' || unit === 'gm' || unit === 'gram' || unit === 'grams') {
-      if (numericQty >= 1000) return (numericQty / 1000) + 'kg';
-      return numericQty + 'g';
-    }
-    
-    // For Liter
-    if (unit === 'l' || unit === 'lt' || unit === 'liter' || unit === 'litre') {
-      if (numericQty <= 1) return (numericQty * 1000) + 'ml';
-      return numericQty + 'L';
-    }
-    
-    // For ML
-    if (unit === 'ml' || unit === 'milli') {
-      if (numericQty >= 1000) return (numericQty / 1000) + 'L';
-      return numericQty + 'ml';
-    }
-    
-    return numericQty;
+    // Round to remove extra decimals
+    const roundedQty = Math.round(numericQty);
+    return String(roundedQty);
   };
 
   const getProductIcon = name => {
@@ -298,14 +276,14 @@ const PackContentsScreen = () => {
           <Text style={styles.scrollHint}>↓ Scroll</Text>
         </View>
 
-        {/* Table Header */}
+        {/* Table Header: Product, Qty, Price, Value */}
         <View style={styles.tableHeader}>
           <Text style={[styles.headerText, styles.colIcon]}></Text>
           <Text style={[styles.headerText, styles.colProduct]}>Product</Text>
-          <Text style={[styles.headerText, styles.colUnit]}>Unit</Text>
-          <Text style={[styles.headerText, styles.colPrice]}>Rate</Text>
+          <Text style={[styles.headerText, {width: 55, textAlign: 'center'}]}>Unit</Text>
           <Text style={[styles.headerText, styles.colQty]}>Qty</Text>
-          <Text style={[styles.headerText, styles.colTotal]}>Value</Text>
+          <Text style={[styles.headerText, styles.colPrice]}>Price</Text>
+          <Text style={[styles.headerText, styles.colValue]}>Total</Text>
         </View>
 
         {/* Pack Products */}
@@ -315,15 +293,25 @@ const PackContentsScreen = () => {
           {(packDetails?.Products || []).map((item, index) => {
             const unitPrice = item.PackProduct?.unitPrice || item.price || 0;
             let qty = item.PackProduct?.quantity;
-            
-            // Defensive: If quantity is undefined, null, or a string (unit type), default to 1
-            if (qty === undefined || qty === null || typeof qty === 'string') {
+            // Defensive: If quantity is undefined or null, default to 1
+            if (qty === undefined || qty === null) {
               qty = 1;
             }
-            
-            const totalValue = unitPrice * qty;
-            const unitAbbreviation = item.PackProduct?.UnitType?.abbreviation || item.UnitType?.abbreviation || 'KG';
-            const displayQty = formatQuantity(qty, unitAbbreviation);
+            // Convert qty to number for calculation
+            const numericQty = parseFloat(qty);
+            const totalValue = unitPrice * numericQty;
+            // Format quantity nicely - show as fraction for common values
+            const formatQtyDisplay = (q) => {
+              const numQty = parseFloat(q);
+              if (numQty === 0.5) return '1/2';
+              if (numQty === 0.25) return '1/4';
+              if (numQty === 0.75) return '3/4';
+              if (numQty === 1.5) return '1.5';
+              if (numQty === 2.5) return '2.5';
+              if (Number.isInteger(numQty)) return numQty.toString();
+              return numQty.toString();
+            };
+            const qtyDisplay = formatQtyDisplay(qty);
             return (
               <View key={index} style={styles.tableRow}>
                 <View style={[styles.colIcon, styles.iconContainer]}>
@@ -344,17 +332,17 @@ const PackContentsScreen = () => {
                   numberOfLines={1}>
                   {item.name}
                 </Text>
-                <Text style={[styles.unitText, styles.colUnit]}>
-                  {unitAbbreviation}
-                </Text>
-                <Text style={[styles.priceText, styles.colPrice]}>
-                  ₹{unitPrice}
+                <Text style={[styles.unitText, {width: 55, textAlign: 'center'}]}>
+                  {item.PackProduct?.unitTypeAbbreviation || item.UnitType?.abbreviation || ''}
                 </Text>
                 <Text style={[styles.qtyText, styles.colQty]}>
-                  {displayQty}
+                  {qtyDisplay}
                 </Text>
-                <Text style={[styles.totalText, styles.colTotal]}>
-                  ₹{totalValue}
+                <Text style={[styles.priceText, styles.colPrice]}>
+                  ₹{Math.round(unitPrice)}
+                </Text>
+                <Text style={[styles.valueText, styles.colValue]}>
+                  ₹{totalValue.toFixed(2)}
                 </Text>
               </View>
             );
@@ -467,11 +455,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   colIcon: {width: 40, textAlign: 'center'},
-  colProduct: {flex: 1, marginRight: 5},
-  colUnit: {width: 50, textAlign: 'center'},
-  colPrice: {width: 55, textAlign: 'right'},
-  colQty: {width: 40, textAlign: 'center'},
-  colTotal: {width: 60, textAlign: 'right'},
+  colProduct: {flex: 1.2, marginRight: 8},
+  colQty: {width: 45, textAlign: 'center'},
+  colPrice: {width: 60, textAlign: 'right'},
+  colValue: {width: 65, textAlign: 'right'},
 
   tableRow: {
     flexDirection: 'row',
@@ -492,12 +479,12 @@ const styles = StyleSheet.create({
     color: '#333',
     fontWeight: '600',
   },
-  unitText: {fontSize: 13, color: '#666', textAlign: 'center', fontWeight: '500'},
-  priceText: {
-    fontSize: 13,
-    color: '#E65100',
+  unitText: {fontSize: 11, color: '#666', textAlign: 'center', fontWeight: '500'},
+  valueText: {
+    fontSize: 14,
+    color: '#2E7D32',
     textAlign: 'right',
-    fontWeight: '600',
+    fontWeight: 'bold',
   },
   qtyText: {
     fontSize: 13,

@@ -14,42 +14,14 @@ import {useRoute, useNavigation} from '@react-navigation/native';
 import CustomHeader from '../components/CustomHeader';
 import BottomNavigation from '../components/BottomNavigation';
 
-// Format quantity based on unit type for order details
-const formatOrderQty = (qty, unitType) => {
-  if (!unitType) return qty;
-  
-  const unit = unitType.toLowerCase();
-  
-  // For KG
-  if (unit === 'kg' || unit === 'kgm' || unit === 'kilo') {
-    if (qty <= 1) return '500g';
-    return qty + 'kg';
-  }
-  
-  // For Dozen
-  if (unit === 'dzn' || unit === 'dozen') {
-    if (qty === 1) return '6pcs';
-    return (qty * 12) + 'pcs';
-  }
-  
-  // For PC/PCS
-  if (unit === 'pc' || unit === 'pcs' || unit === 'piece' || unit === 'pieces') {
-    return qty + 'pcs';
-  }
-  
-  // For Gram
-  if (unit === 'g' || unit === 'gm' || unit === 'gram' || unit === 'grams') {
-    if (qty >= 1000) return (qty / 1000) + 'kg';
-    return qty + 'g';
-  }
-  
-  // For Liter
-  if (unit === 'l' || unit === 'lt' || unit === 'liter' || unit === 'litre') {
-    if (qty <= 1) return (qty * 1000) + 'ml';
-    return qty + 'L';
-  }
-  
-  return qty;
+// Format quantity based on unit type for order details - simplified version
+const formatOrderQty = (qty) => {
+  if (qty === undefined || qty === null) return '1';
+  let numericQty = qty;
+  if (typeof qty === 'string') numericQty = parseFloat(qty);
+  if (isNaN(numericQty)) return String(qty) || '1';
+  // If integer, show as integer, else show up to 3 decimals (trim trailing zeros)
+  return Number.isInteger(numericQty) ? String(numericQty) : numericQty.toFixed(3).replace(/\.0+$/, '').replace(/0+$/, '');
 };
 
 const OrderDetailsScreen = () => {
@@ -145,7 +117,7 @@ const OrderDetailsScreen = () => {
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         <Text style={styles.title}>Order Details</Text>
 
-        <LinearGradient colors={['#E8F5E8', '#F1F8E9']} style={styles.section}>
+        <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Ionicons name="information-circle" size={24} color="#4CAF50" />
             <Text style={styles.sectionTitle}>Order Information</Text>
@@ -164,14 +136,12 @@ const OrderDetailsScreen = () => {
             <Text style={styles.label}>Status:</Text>
             <Text style={styles.value}>{order.status || 'Processing'}</Text>
           </View>
+          {/* Show GST-inclusive order total */}
           <View style={styles.row}>
-            <Text style={styles.label}>Order Total:</Text>
+            <Text style={styles.label}>Order Total (incl. GST):</Text>
             <Text style={styles.value}>
               ₹
-              {order.Pack?.sellingPrice ||
-                order.Pack?.['selling Price'] ||
-                order.totalAmount ||
-                0}
+              {order.totalAmount ? (parseFloat(order.totalAmount) * 1.18).toFixed(2) : (order.Pack?.sellingPrice ? (parseFloat(order.Pack.sellingPrice) * 1.18).toFixed(2) : 0)}
             </Text>
           </View>
           <View style={styles.row}>
@@ -182,9 +152,9 @@ const OrderDetailsScreen = () => {
             <Text style={styles.label}>Payment Status:</Text>
             <Text style={styles.value}>{order.paymentStatus}</Text>
           </View>
-        </LinearGradient>
+        </View>
 
-        <LinearGradient colors={['#FFF3E0', '#FFEBCD']} style={styles.section}>
+        <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Ionicons name="cube" size={24} color="#FF9800" />
             <Text style={styles.sectionTitle}>Pack Details</Text>
@@ -195,24 +165,11 @@ const OrderDetailsScreen = () => {
           {!order.isCustom && order.Pack && (
             <View>
               <Text style={styles.detailText}>Pack: {order.Pack.name}</Text>
-
               <View style={styles.packItem}>
                 <View style={styles.row}>
-                  <Text style={styles.label}>Product:</Text>
-                  <Text style={styles.value}>{order.Pack.name}</Text>
+                  <Text style={styles.label}>Quantity of Packs:</Text>
+                  <Text style={styles.value}>{formatOrderQty(order.quantity)}</Text>
                 </View>
-
-                <View style={styles.row}>
-                  <Text style={styles.label}>Quantity:</Text>
-                  <Text style={styles.value}>{order.quantity || 1}</Text>
-                </View>
-
-                <View style={styles.row}>
-                  <Text style={styles.label}>Unit:</Text>
-                  <Text style={styles.value}>{order.Pack?.UnitType?.abbreviation || 'KG'}</Text>
-                </View>
-
-
               </View>
             </View>
           )}
@@ -243,8 +200,8 @@ const OrderDetailsScreen = () => {
                       <View style={styles.row}>
                         <Text style={styles.label}>Quantity:</Text>
                         <Text style={styles.value}>
-                          {item.quantity && typeof item.quantity === 'number' 
-                            ? (item.unitType ? formatOrderQty(item.quantity, item.unitType) : item.quantity)
+                          {item.quantity && typeof item.quantity === 'number'
+                            ? formatOrderQty(item.quantity)
                             : item.quantity}
                         </Text>
                       </View>
@@ -253,13 +210,6 @@ const OrderDetailsScreen = () => {
                         <Text style={styles.label}>Price:</Text>
                         <Text style={styles.value}>
                           ₹{item.price || item.unitPrice}
-                        </Text>
-                      </View>
-
-                      <View style={styles.row}>
-                        <Text style={styles.label}>Unit:</Text>
-                        <Text style={styles.value}>
-                          {item.unitType || 'KG'}
                         </Text>
                       </View>
                     </View>
@@ -274,9 +224,9 @@ const OrderDetailsScreen = () => {
               })()}
             </View>
           )}
-        </LinearGradient>
+        </View>
 
-        <LinearGradient colors={['#E3F2FD', '#BBDEFB']} style={styles.section}>
+        <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Ionicons name="location" size={24} color="#2196F3" />
             <Text style={styles.sectionTitle}>Delivery Information</Text>
@@ -285,7 +235,7 @@ const OrderDetailsScreen = () => {
             <Text style={styles.label}>Address:</Text>
             <Text style={styles.value}>{order.deliveryAddress}</Text>
           </View>
-        </LinearGradient>
+        </View>
 
         {user && (
           <LinearGradient

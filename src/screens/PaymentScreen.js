@@ -26,7 +26,7 @@ const PaymentScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
 
-  const {cartItems = [], deliveryAddress, totalAmount = 0} = route.params || {};
+  const {cartItems = [], deliveryAddress, totalAmount = 0, gstAmount = 0} = route.params || {};
 
   const [processing, setProcessing] = useState(false);
   const [walletBalance, setWalletBalance] = useState(0);
@@ -333,8 +333,12 @@ const PaymentScreen = () => {
         <Text style={styles.title}>Complete Your Payment</Text>
 
         <View style={styles.amountBox}>
-          <Text style={styles.amountLabel}>Total Amount</Text>
+          <Text style={styles.amountLabel}>Total Amount (incl. GST)</Text>
           <Text style={styles.amount}>₹{totalAmount}</Text>
+        </View>
+        <View style={[styles.amountBox, {backgroundColor: '#f8f9fa', marginTop: -10, marginBottom: 10}]}> 
+          <Text style={[styles.amountLabel, {color: '#555'}]}>GST (18%)</Text>
+          <Text style={[styles.amount, {color: '#555', fontSize: 16}]}>₹{gstAmount ? gstAmount.toFixed(2) : (totalAmount * 0.18 / 1.18).toFixed(2)}</Text>
         </View>
 
         {/* Wallet Section - Always show */}
