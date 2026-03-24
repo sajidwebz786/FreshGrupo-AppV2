@@ -98,7 +98,7 @@ const OrderHistoryScreen = () => {
           items: order.packProducts.map(pp => ({
             name: pp.name,
             quantity: pp.quantity,
-            unit: pp.unit || 'pcs',
+            unit: pp.UnitType?.abbreviation || pp.unit || '',
           })),
         });
         setPackLoading(false);
@@ -121,7 +121,7 @@ const OrderHistoryScreen = () => {
               items: orderDetails.packContents.map(pc => ({
                 name: pc.productName,
                 quantity: pc.quantity,
-                unit: pc.unitPrice ? '₹' + pc.unitPrice : 'pcs',
+               unit: pp.unit || '',
               })),
             });
           } else {
@@ -139,6 +139,19 @@ const OrderHistoryScreen = () => {
     } finally {
       setPackLoading(false);
     }
+  };
+
+  const formatQtyDisplay = q => {
+    const numQty = parseFloat(q);
+
+    if (numQty === 0.5) return '1/2';
+    if (numQty === 0.25) return '1/4';
+    if (numQty === 0.75) return '3/4';
+    if (numQty === 1.5) return '1.5';
+    if (numQty === 2.5) return '2.5';
+    if (Number.isInteger(numQty)) return numQty.toString();
+
+    return numQty.toString();
   };
 
   const getGradientColors = () => {
@@ -171,9 +184,7 @@ const OrderHistoryScreen = () => {
           {/* Order ID - Clickable */}
           <View style={styles.row}>
             <Text style={styles.label}>Order ID:</Text>
-              <Text style={[styles.value]}>
-                #{item.id}
-              </Text>
+            <Text style={[styles.value]}>#{item.id}</Text>
           </View>
 
           {/* Pack Name - Clickable */}
@@ -226,88 +237,107 @@ const OrderHistoryScreen = () => {
 
   // Render pack contents modal
   const renderPackModal = () => (
-  <Modal
-    animationType="slide"
-    transparent={true}
-    visible={modalVisible}
-    onRequestClose={() => setModalVisible(false)}
-  >
-    <View style={styles.modalOverlay}>
-      <View style={styles.modalContent}>
-        <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>
-            {selectedOrder?.isCustom ? 'Custom Pack Contents' : 'Pack Contents'}
-          </Text>
-          <TouchableOpacity onPress={() => setModalVisible(false)}>
-            <Ionicons name="close-circle" size={28} color="#4CAF50" />
+    <Modal
+      animationType="slide"
+      transparent={true}
+      visible={modalVisible}
+      onRequestClose={() => setModalVisible(false)}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>
+              {selectedOrder?.isCustom
+                ? 'Custom Pack Contents'
+                : 'Pack Contents'}
+            </Text>
+            <TouchableOpacity onPress={() => setModalVisible(false)}>
+              <Ionicons name="close-circle" size={28} color="#4CAF50" />
+            </TouchableOpacity>
+          </View>
+
+          {packLoading ? (
+            <ActivityIndicator
+              size="large"
+              color="#4CAF50"
+              style={styles.modalLoader}
+            />
+          ) : packDetails?.error ? (
+            <Text style={styles.errorText}>{packDetails.error}</Text>
+          ) : (
+            <ScrollView style={styles.modalScroll}>
+              {/* ================= ORDER DETAILS FIRST ================= */}
+              {selectedOrder && (
+                <View style={styles.orderInfoContainer}>
+                  <Text style={styles.orderInfoTitle}>Order Details</Text>
+                  <Text style={styles.orderInfoText}>
+                    Order ID: #{selectedOrder.id}
+                  </Text>
+                  <Text style={styles.orderInfoText}>
+                    Date:{' '}
+                    {new Date(selectedOrder.createdAt).toLocaleDateString()}
+                  </Text>
+                  <Text style={styles.orderInfoText}>
+                    Total: ₹{selectedOrder.totalAmount}
+                  </Text>
+                  <Text style={styles.orderInfoText}>
+                    Payment Method:{' '}
+                    {getPaymentMethodDisplay(selectedOrder.paymentMethod)}
+                  </Text>
+                  {selectedOrder.payment && (
+                    <Text style={styles.orderInfoText}>
+                      Payment Status: {selectedOrder.payment.status}
+                    </Text>
+                  )}
+                  <Text style={styles.orderInfoText}>
+                    Order Status: {selectedOrder.status || 'Processing'}
+                  </Text>
+                </View>
+              )}
+
+              {/* ================= PACK DETAILS SECOND ================= */}
+              {packDetails &&
+              packDetails.items &&
+              packDetails.items.length > 0 ? (
+                <View style={styles.itemsContainer}>
+                  <View style={styles.packNameContainer}>
+                    <Text style={styles.packName}>{packDetails.name}</Text>
+                  </View>
+                  {packDetails.items.map((item, index) => (
+                    <View key={index} style={styles.itemRow}>
+                      <View style={styles.itemInfo}>
+                        <Text style={styles.itemName}>
+                          {item.name || item.productName}
+                        </Text>
+                        {item.category && (
+                          <Text style={styles.itemCategory}>
+                            {item.category}
+                          </Text>
+                        )}
+                      </View>
+                      <Text style={styles.itemQuantity}>
+  {formatQtyDisplay(item.quantity || item.qty || 1)}
+  {item.unit ? ` ${item.unit}` : ''}
+</Text>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <Text style={styles.noItemsText}>
+                  No pack details available
+                </Text>
+              )}
+            </ScrollView>
+          )}
+
+          <TouchableOpacity
+            style={styles.closeButton}
+            onPress={() => setModalVisible(false)}>
+            <Text style={styles.closeButtonText}>Close</Text>
           </TouchableOpacity>
         </View>
-
-        {packLoading ? (
-          <ActivityIndicator size="large" color="#4CAF50" style={styles.modalLoader} />
-        ) : packDetails?.error ? (
-          <Text style={styles.errorText}>{packDetails.error}</Text>
-        ) : (
-          <ScrollView style={styles.modalScroll}>
-            {/* ================= ORDER DETAILS FIRST ================= */}
-            {selectedOrder && (
-              <View style={styles.orderInfoContainer}>
-                <Text style={styles.orderInfoTitle}>Order Details</Text>
-                <Text style={styles.orderInfoText}>Order ID: #{selectedOrder.id}</Text>
-                <Text style={styles.orderInfoText}>
-                  Date: {new Date(selectedOrder.createdAt).toLocaleDateString()}
-                </Text>
-                <Text style={styles.orderInfoText}>
-                  Total: ₹{selectedOrder.totalAmount}
-                </Text>
-                <Text style={styles.orderInfoText}>
-                  Payment Method: {getPaymentMethodDisplay(selectedOrder.paymentMethod)}
-                </Text>
-                {selectedOrder.payment && (
-                  <Text style={styles.orderInfoText}>
-                    Payment Status: {selectedOrder.payment.status}
-                  </Text>
-                )}
-                <Text style={styles.orderInfoText}>
-                  Order Status: {selectedOrder.status || 'Processing'}
-                </Text>
-              </View>
-            )}
-
-            {/* ================= PACK DETAILS SECOND ================= */}
-            {packDetails && packDetails.items && packDetails.items.length > 0 ? (
-              <View style={styles.itemsContainer}>
-                <View style={styles.packNameContainer}>
-                  <Text style={styles.packName}>{packDetails.name}</Text>
-                </View>
-                {packDetails.items.map((item, index) => (
-                  <View key={index} style={styles.itemRow}>
-                    <View style={styles.itemInfo}>
-                      <Text style={styles.itemName}>{item.name || item.productName}</Text>
-                      {item.category && <Text style={styles.itemCategory}>{item.category}</Text>}
-                    </View>
-                    <Text style={styles.itemQuantity}>
-                      {item.quantity || item.qty || 1} {item.unit || 'pcs'}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            ) : (
-              <Text style={styles.noItemsText}>No pack details available</Text>
-            )}
-          </ScrollView>
-        )}
-
-        <TouchableOpacity
-          style={styles.closeButton}
-          onPress={() => setModalVisible(false)}
-        >
-          <Text style={styles.closeButtonText}>Close</Text>
-        </TouchableOpacity>
       </View>
-    </View>
-  </Modal>
-);
+    </Modal>
+  );
 
   return (
     <LinearGradient colors={['#f8f9fa', '#e0e0e0']} style={styles.container}>
